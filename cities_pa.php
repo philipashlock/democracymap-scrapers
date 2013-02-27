@@ -1,79 +1,121 @@
 <?php
 
-require 'scraperwiki.php';
+$run_environment = 'dev'; // either 'dev' or 'prod'
+$max_records = 4; // only used for testing
+
+if ($run_environment == 'dev') {
+    error_reporting(E_ALL);
+    ini_set('display_errors','On');    
+
+    require 'scraperwiki.php';
+
+	$csv_file_path = '/Users/philipashlock/Sites/test.dev/scraper/csv_tmp/city_pa.csv';
+
+} 
+
+if ($run_environment == 'prod') {
+	$csv_file_path = '/tmp/city_pa.csv';		
+}
+
 require 'scraperwiki/simple_html_dom.php';
 
 
-$cities = "http://munstatspa.dced.state.pa.us/ReportViewer.axd?R=LocalOfficial&F=C";
+/// -------------------------------- First download the file --------------------------------
 
-$data = scraperWiki::scrape($cities);
+$url  = 'http://munstatspa.dced.state.pa.us/ReportViewer.axd?R=LocalOfficial&F=C';
 
-$lines = explode("\n", $data);
 
-$count = 1;
-foreach($lines as $row) {  
-	$row = str_getcsv($row); 
-	
-	$output[] = $row;
-	
-	if ($count > 5) break;
-	$count++;
+if ($run_environment == 'prod') {
+ $ch = curl_init($url);
+ curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+ curl_setopt($ch, CURLOPT_ENCODING, 'UTF-8');
+ 
+ $data = curl_exec($ch);
+ 
+ curl_close($ch);
+ 
+// solving for weird encoding issues
+ $data = iconv('utf-16le', 'utf-8', $data);
+
+ file_put_contents($csv_file_path, $data);
+
+ unset($data);
+
+}
+                                          
+/// ------------------------------------------------------------------------------------------
+
+
+
+$output = get_sources($csv_file_path);
+
+
+if ($run_environment == 'dev') {
+	header('Content-type: application/json');
+	print json_encode($output);
 }
 
+function get_sources($csv_file_path) {
+	
+global $run_environment;
+global $max_records;
 
-//$header = str_getcsv(array_shift($lines));
+	if(($handle = fopen($csv_file_path, 'r')) !== false)
+	{
+	    // get the first row, which contains the column-titles (if necessary)
+	    $header = fgetcsv($handle);
 
-// foreach($lines as $row) {
-//     $row = str_getcsv($row);
-//     if ($row[0]) {
-//         $record = array_combine($header, $row);
-//         $record['Amount'] = (float)$record['Amount'];
-//         scraperwiki::save(array('Transaction Number', 'Expense Type', 'Expense Area'), $record);
-//     }
-// }
+		$header = rmBOM($header[0]);
+		$header = explode("\t", $header);
 
+		$count = 1;
 
-
-
-
-header('Content-type: application/json');
-print json_encode($output);
-
-
-function get_state_sources($url) {
-    
-    
-    $html = scraperWiki::scrape($url);
-
-    $dom = new simple_html_dom();
-    $dom->load($html);
-
-    $list = $dom->find("div[class=three_column_container]", 0);
-
-    foreach($list->find("ul[class=three_column_bullets]") as $column){
-
-        foreach($column->find("li") as $items){
-
-                $state = $items->plaintext;
-				$state = trim(str_replace("\t", "", $state));
+	    // loop through the file line-by-line
+	    while(($data = fgetcsv($handle)) !== false)
+	    {
+	        // resort/rewrite data and insert into DB here
+	        // try to use conditions sparingly here, as those will cause slow-performance
+			
+ 			//$data = iconv('utf-16le', 'utf-8', $data[0]); 												
+			$data = explode("\t", $data[0]);	
+			
+			foreach ($data as $key => $value) {
 				
+				$row[$header[$key]] = $value;
+				
+			}
+			
+			if ($run_environment == 'dev') {
+				$rows[] = $row;
+				if($count > $max_records) break;// { var_dump($rows); exit;}
+				$count++;
+			}
+			
+			if ($run_environment == 'prod') {			
+				scraperwiki::save(array('CITY', 'TITLE'), $row);
+			}
+			
 
-                $url = $items->find('a', 0);
-                $url = $url->href;
+	        unset($row);
+	    }
+	    fclose($handle);
+	}
 
-                $source[] = array ('state' => $state, 'url' => $url);
-
-
-        }
-
-
-    }
-    
-    return $source;
-        
+if ($run_environment == 'dev') {	
+	return $rows;	
+} else {
+	return true;
+}
+	
 }
 
 
+function rmBOM($data){
+    if(substr($data, 0, 3) == pack('CCC', 239, 187, 191)) {
+        return substr($data, 3);
+    }
+    return $data;
+}
 
 
 
