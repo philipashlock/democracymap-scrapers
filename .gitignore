@@ -11,3 +11,10 @@ source
 school-r-geocode.php
 
 tmp
+*.php~
+
+cities_ma-copy.php
+
+cities_ma.txt
+
+test_maryland_pdf.php
