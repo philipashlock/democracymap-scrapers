@@ -11,7 +11,9 @@ if ($run_environment == 'dev') {
 require 'scraperwiki/simple_html_dom.php';
 
 
-$post_url = "http://www.tml.org/source/Members/TML_DirectoryProcess.cfm";
+$post_url = "http://members.tml.org/source/Members/TML_DirectoryProcess.cfm";
+
+//http://members.tml.org/source/members/TML_Directory.cfm
 
 //set POST variables
 $fields = array(
@@ -89,7 +91,10 @@ function get_city_list($html) {
     $dom->load($html);
     
 	// table/tr/td/div/table/tr/td[2]/table/tr/td/table/tr[5]
-    $content = $dom->find("table", 0)->find("tr", 0)->find("td", 0)->find("div", 0)->find("table", 0)->find("tr", 0)->find("td", 2)->find("table", 0);
+	// $content = $dom->find("table", 0)->find("tr", 0)->find("td", 0)->find("div", 0)->find("table", 0)->find("tr", 0)->find("td", 2)->find("table", 0);
+	
+	// table/tbody/tr/td/div/section/div/table
+    $content = $dom->find("table", 0)->find("tr", 0)->find("td", 0)->find("div", 0)->find("section", 0)->find("div", 0)->find("table", 0);
 
 	$count = 0;
     foreach($content->find("tr") as $row){
@@ -133,8 +138,10 @@ function get_city_data($url) {
 		echo $url; exit;
 	}
 	
-	
-    $content = $dom->find("table", 0)->find("tr", 0)->find("td", 0)->find("div", 0)->find("table", 0)->find("tr", 0)->find("td", 2)->find("table", 0);
+	// /html/body/table/tbody/tr/td/div/section/div/table
+	// $content = $dom->find("table", 0)->find("tr", 0)->find("td", 0)->find("div", 0)->find("table", 0)->find("tr", 0)->find("td", 2)->find("table", 0);
+    
+    $content = $dom->find("table", 0)->find("tr", 0)->find("td", 0)->find("div", 0)->find("section", 0)->find("div", 0)->find("table", 0);
 
 	$city['source'] = $url;
 	$city['name_full'] = $content->find("h2", 0)->plaintext;
@@ -168,7 +175,7 @@ function get_city_data($url) {
         return $city;
     }
     else {
-        scraperwiki::save_sqlite(array('name_full','source'), $city, $table_name='city');    
+        scraperwiki::save_sqlite(array('name_full','source'), $city, $table_name='jurisdiction');    
         return true;
 
     }
@@ -200,22 +207,36 @@ function get_rep_details($content, $source, $city) {
 		$rep['name']	= trim($row->find("td", 1)->plaintext);
 		$rep['name']	= str_replace('&nbsp;', '', $rep['name']);
 
-		$rep['city']	= $city;
-		$rep['source'] 	= $source;
+	
+		$official = official();
+		$official['government_name']		= $city;
+		$official['government_level']		= 'municipal';
+
+		$official['type']					= null;
+		$official['title']                  = $rep['title'];
+		$official['name_full']		        = $rep['name'];
+
+		$official['address_locality']		= $city;
+		$official['address_region']		    = 'TX';
+		$official['address_country']		= 'USA';
+
+		$official['sources']                = json_encode(array(array('description' => null, 'url' => $source, "timestamp" => gmdate("Y-m-d H:i:s"))));	
+	
+	
 	
 	
 	   	if ($run_environment == 'dev') {
-	   	 	$reps[] = $rep;
+	   	 	$officials[] = $official;
 	   	} 
 	   	else {
-	   	 	scraperwiki::save_sqlite(array('name','title','city'), $rep, $table_name='reps');    
+	   	 	scraperwiki::save_sqlite(array('name_full','title','government_name'), $official, $table_name='officials');    
        	}
 	
 	
 	}
 	
 	if ($run_environment == 'dev') {			
-	    return $reps;
+	    return $officials;
 	}
 	else {
 	    return true;
@@ -223,6 +244,44 @@ function get_rep_details($content, $source, $city) {
 
 }
 
+
+
+
+function official() {
+	
+	$official = array(
+		'government_name'		=> NULL,                 		
+		'government_level'		=> NULL,                 		
+		'type' 					=> NULL,                 		
+		'title' 				=> NULL,                		
+		'description' 			=> NULL,          		
+		'name_given' 			=> NULL,           		
+		'name_family' 			=> NULL,          			
+		'name_full' 			=> NULL,            			
+		'url' 					=> NULL,                  
+		'url_photo' 			=> NULL,            
+		'url_schedule' 			=> NULL,         
+		'url_contact' 			=> NULL,          
+		'email' 				=> NULL,                
+		'phone' 				=> NULL,                
+		'address_name' 			=> NULL,         
+		'address_1' 			=> NULL,            
+		'address_2' 			=> NULL,            
+		'address_locality' 		=> NULL,         
+		'address_region' 		=> NULL,        
+		'address_postcode' 		=> NULL,          
+		'current_term_enddate' 	=> NULL, 
+		'last_updated' 			=> NULL,         			
+		'social_media' 			=> NULL,         			
+		'other_data' 			=> NULL,
+		'conflicting_data'		=> NULL,
+		'sources' 				=> NULL				         			
+
+	);
+	
+	return $official;
+	
+}
 
 
 
