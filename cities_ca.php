@@ -261,7 +261,7 @@ function get_rep_details($url) {
 		$official['address_postcode']		= $rep['zip'];
 		$official['address_country']		= 'USA';	
 		$official['phone']                  = $rep['phone'];
-		$official['sources']                = json_encode(array(array('description' => null, 'url' => $rep['source'])));
+		$official['sources']                = json_encode(array(array('description' => null, 'url' => $rep['source'], "timestamp" => gmdate("Y-m-d H:i:s"))));
 
 		return $official;
 	} else {
@@ -306,6 +306,38 @@ function official() {
 	return $official;
 	
 }
+
+
+
+// template for setting variables
+// 
+// $official['government_name']			=	;
+// $official['government_level']		=	;
+// $official['type']					=	;
+// $official['title']					=	;
+// $official['description']				=	;
+// $official['name_given']				=	;
+// $official['name_family']				=	;
+// $official['name_full']				=	;
+// $official['url']						=	;
+// $official['url_photo']				=	;
+// $official['url_schedule']			=	;
+// $official['url_contact']				=	;
+// $official['email']					=	;
+// $official['phone']					=	;
+// $official['address_name']			=	;
+// $official['address_1']				=	;
+// $official['address_2']				=	;
+// $official['address_locality']		=	;
+// $official['address_region']			=	;
+// $official['address_postcode']		=	;
+// $official['current_term_enddate']	=	;
+// $official['last_updated']			=	;
+// $official['social_media']			=	;
+// $official['other_data']				=	;
+// $official['conflicting_data']		=	;
+// $official['sources']					=	;
+
 
 
 
