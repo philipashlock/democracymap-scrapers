@@ -1,21 +1,17 @@
 <?php
 
-$run_environment = 'prod'; // either 'dev' or 'prod'
-$max_records = 4; // only used for testing
+$run_environment = 'dev'; // either 'dev' or 'prod'
+$max_records = 2; // only used for testing
+
+require 'rb.php';if(empty($_SERVER["SERVER_ADDR"])OR stripos($_SERVER["SERVER_ADDR"],'127.0.0.1')===false){new scraperwiki();}class scraperwiki{protected $db;public function __construct($db='sqlite:scraperwiki.sqlite'){scraperwiki::_connect($db);}static function _connect($db=null){if(empty($db)){R::setup();}else{R::setup($db);}}static function save($unique_keys=array(),$data,$table_name="swdata",$date=null){$ldata=$data;if(!is_null($date))$ldata["date"]=$date;return scraperwiki::save_sqlite($unique_keys,$ldata,$table);}static function save_sqlite($unique_keys=array(),$data,$table_name='swdata'){if(count($data)==0)return;$table=R::dispense($table_name);foreach($data as&$value){if($value instanceof DateTime){$new_value=clone $value;$new_value->setTimezone(new DateTimeZone('UTC'));$value=$new_value->format(DATE_ISO8601);assert(strpos($value,"+0000")!==FALSE);$value=str_replace("+0000","",$value);}}unset($value);foreach($data as $key=>$value){$table->$key=$value;}if(!R::$redbean->tableExists($table_name)){if(!empty($unique_keys)){$table->setMeta("buildcommand.unique",array($unique_keys));}R::store($table);return true;}if(!empty($unique_keys)){$parameters['table_name']=$table_name;$parameters['keys']=join(", ",array_keys($data));$parameters['values']=join(', ',array_fill(0,count($data),'?'));$sql=vsprintf('INSERT or REPLACE INTO %s (%s) VALUES (%s)',$parameters);R::exec($sql,array_values($data));return true;}else{R::store($table);return true;}}static function save_var($name,$value){$vtype=gettype($value);if(($vtype!="integer")&&($vtype!="string")&&($vtype!="double")&&($vtype!="NULL"))print_r("*** object of type $vtype converted to string\n");$data=array("name"=>$name,"value_blob"=>strval($value),"type"=>$vtype);scraperwiki::save_sqlite(array("name"),$data,"swvariables");}static function get_var($name,$default=null){$data=R::findOne('swvariables',' name = ? ',array($name));if(!$data)return $default;$svalue=$data->value_blob;$vtype=$data->type;if($vtype=="integer")return intval($svalue);if($vtype=="double")return floatval($svalue);if($vtype=="NULL")return null;return $svalue;}static function scrape($url){$curl=curl_init($url);curl_setopt($curl,CURLOPT_RETURNTRANSFER,true);curl_setopt($curl,CURLOPT_FOLLOWLOCATION,true);curl_setopt($curl,CURLOPT_MAXREDIRS,10);curl_setopt($curl,CURLOPT_SSL_VERIFYPEER,false);$res=curl_exec($curl);curl_close($curl);return $res;}}
+require 'simple_html_dom.php';
 
 if ($run_environment == 'dev') {
     error_reporting(E_ALL);
     ini_set('display_errors','On');    
-} else {
-	
-	require 'rb.php';
-	R::setup();
-	$db = new stdClass();	
-	$db->save_var = R::dispense('swvariables');
-
+	new scraperwiki('');
 }
 
-require 'scraperwiki/simple_html_dom.php';
 
 $url = "http://events.cacities.org/CGI-SHL/TWSERVER.EXE/RUN:MEMLOOK";
 
@@ -24,31 +20,28 @@ $post_url = 'http://events.cacities.org/cgi-shl/TWServer.exe?Run:MEMLOOK_1';
 $city_list = get_city_list($url);
 
 // Set state of scraper as running in case we crash part way thru
-$db->save_var->scraper_state = 'running';
-R::store($db->save_var);
-
+scraperwiki::save_var('scraper_state', 'running');
 
 $count = 1;
 foreach ($city_list as $city) {
 	
 	
+
+	
 	// Check if we failed part way through a run and find where we left off
-	// if (scraperwiki::get_var('scraper_state') == 'running') {
-	// 	
-	// 	$last_city = scraperwiki::get_var('last_city');
-	// 	
-	// 	if (!empty($last_city)) {
-	// 		if ($last_city !== $city) {
-	// 			continue;
-	// 		} 
-	// 	} else {
-	// 		
-	// 		$db->save_var->last_city = $city;
-	// 		R::store($db->save_var);			
-	// 		
-	// 	}
-	// 			
-	// }
+	if (scraperwiki::get_var('scraper_state') == 'running') {
+		
+		$last_city = scraperwiki::get_var('last_city');
+		
+		if (!empty($last_city)) {
+			if ($last_city !== $city) {
+				continue;
+			} 
+		} else {
+			scraperwiki::save_var('last_city', $city);
+		}
+				
+	}
 		
 	
 	//set POST variables
@@ -76,14 +69,12 @@ foreach ($city_list as $city) {
 	}
 
 	// reset the progress bookmark
-	$db->save_var->last_city = '';
-	R::store($db->save_var);	
-	
+	scraperwiki::save_var('last_city', '');	
 }	
 
 
 // Set state of scraper to complete so we know it didn't crash part way thru
-//scraperwiki::save_var('scraper_state', 'complete');
+scraperwiki::save_var('scraper_state', 'complete');
 
 
 // if testing
@@ -170,52 +161,7 @@ function get_city_data($html = null, $url = null, $reps = null) {
 	        }
 	        else {
 				$reps = null;
-	            //scraperwiki::save_sqlite(array('title','name_full','government_name'), $rep, $table_name='officials');  
-	
-	            $table_name = 'officials';
-				$table = R::dispense($table_name);	
-	
-	            $uniques = array('title', 'name_full', 'government_name');
-	
-				// prepare an insert if we don't need to update
-			    foreach ($rep as $key => $value) {
-			    	$table->$key = $value;
-			    }
-			
-				if (!R::$redbean->tableExists($table_name)) {
-					R::store($table);
-					continue;
-				}
-	
-	
-	            if(!empty($uniques)) {
-	                
-
-	                $wheres = '';
-	                foreach ($uniques as $unique) {
-	                    $wheres .= $unique . " = '" . $rep[$unique] . "' AND ";
-	                }
-	                $wheres = rtrim($wheres, ' AND ');
-	                
-	                $parameters['table_name'] = $table_name;
-	                $parameters['keys'] = implode(", ", array_keys($rep)); 
-	                $parameters['values'] = join(',', array_fill(0, count($rep), '?')); // adds the ? placeholder for values
-                    //$parameters['where'] = $wheres;	                
-	                
-                    $sql = vsprintf('INSERT or REPLACE INTO %s (%s) VALUES (%s)', $parameters);
-	                R::exec($sql,array_values($rep));
-	                
-					echo $sql;
-					exit;
-						
-	                //R::exec( "INSERT or REPLACE INTO officials (government_name,type,title,name_full) VALUES (?,?,?,?)", array('Acme','executive','Mayor','John Smith') ); //'update page set title="test" where id=1'  // INSERT %s INTO %s (%s) VALUES (%s)
-	            } else {
-	    
-				    R::store($table);	                
-	                
-	            }
-
-	  
+	            scraperwiki::save_sqlite(array('title','name_full','government_name'), $rep, $table_name='officials');    
 	        }
 		}
 
@@ -364,58 +310,6 @@ function official() {
 	
 }
 
-
-
-// template for setting variables
-// 
-// $official['government_name']			=	;
-// $official['government_level']		=	;
-// $official['type']					=	;
-// $official['title']					=	;
-// $official['description']				=	;
-// $official['name_given']				=	;
-// $official['name_family']				=	;
-// $official['name_full']				=	;
-// $official['url']						=	;
-// $official['url_photo']				=	;
-// $official['url_schedule']			=	;
-// $official['url_contact']				=	;
-// $official['email']					=	;
-// $official['phone']					=	;
-// $official['address_name']			=	;
-// $official['address_1']				=	;
-// $official['address_2']				=	;
-// $official['address_locality']		=	;
-// $official['address_region']			=	;
-// $official['address_postcode']		=	;
-// $official['current_term_enddate']	=	;
-// $official['last_updated']			=	;
-// $official['social_media']			=	;
-// $official['other_data']				=	;
-// $official['conflicting_data']		=	;
-// $official['sources']					=	;
-
-
-
-
-
-class scraperwiki {
-	
-	static function scrape($url) {
-	  $curl = curl_init($url);
-	  curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-	  curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
-	  curl_setopt($curl, CURLOPT_MAXREDIRS, 10);
-	  // disable SSL checking to match behaviour in Python/Ruby.
-	  // ideally would be fixed by configuring curl to use a proper 
-	  // reverse SSL proxy, and making our http proxy support that.
-	  curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-	  $res = curl_exec($curl);
-	  curl_close($curl);
-	  return $res;
-	}
-
-}
 
 
 
