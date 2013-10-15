@@ -3,13 +3,22 @@
 $run_environment = 'dev'; // either 'dev' or 'prod'
 $max_records = 4; // only used for testing
 
-if ($run_environment == 'dev') {
-    error_reporting(E_ALL);     
-    require 'scraperwiki.php';
-}
 
+require 'rb.php';if(empty($_SERVER["SERVER_ADDR"])OR stripos($_SERVER["SERVER_ADDR"],'127.0.0.1')===false){new scraperwiki();}class scraperwiki{protected $db;public function __construct($db='sqlite:scraperwiki.sqlite'){scraperwiki::_connect($db);}static function _connect($db=null){if(empty($db)){R::setup();}else{R::setup($db);}}static function save($unique_keys=array(),$data,$table_name="swdata",$date=null){$ldata=$data;if(!is_null($date))$ldata["date"]=$date;return scraperwiki::save_sqlite($unique_keys,$ldata,$table);}static function save_sqlite($unique_keys=array(),$data,$table_name='swdata'){if(count($data)==0)return;$table=R::dispense($table_name);foreach($data as&$value){if($value instanceof DateTime){$new_value=clone $value;$new_value->setTimezone(new DateTimeZone('UTC'));$value=$new_value->format(DATE_ISO8601);assert(strpos($value,"+0000")!==FALSE);$value=str_replace("+0000","",$value);}}unset($value);foreach($data as $key=>$value){$table->$key=$value;}if(!R::$redbean->tableExists($table_name)){if(!empty($unique_keys)){}R::store($table);return true;}if(!empty($unique_keys)){$parameters['table_name']=$table_name;$parameters['keys']=join(", ",array_keys($data));$parameters['values']=join(', ',array_fill(0,count($data),'?'));$sql=vsprintf('INSERT or REPLACE INTO %s (%s) VALUES (%s)',$parameters);R::exec($sql,array_values($data));return true;}else{R::store($table);return true;}}static function save_var($name,$value){$vtype=gettype($value);if(($vtype!="integer")&&($vtype!="string")&&($vtype!="double")&&($vtype!="NULL"))print_r("*** object of type $vtype converted to string\n");$data=array("name"=>$name,"value_blob"=>strval($value),"type"=>$vtype);scraperwiki::save_sqlite(array("name"),$data,"swvariables");}static function get_var($name,$default=null){$data=R::findOne('swvariables',' name = ? ',array($name));if(!$data)return $default;$svalue=$data->value_blob;$vtype=$data->type;if($vtype=="integer")return intval($svalue);if($vtype=="double")return floatval($svalue);if($vtype=="NULL")return null;return $svalue;}static function sqliteexecute($sqlquery=null,$data=null,$verbose=1){if(!empty($data)){}$result=R::exec($sqlquery);return $result;}static function select($sqlquery,$data=null){$result=scraperwiki::sqliteexecute("select ".$sqlquery,$data);return $result;}static function scrape($url){$curl=curl_init($url);curl_setopt($curl,CURLOPT_RETURNTRANSFER,true);curl_setopt($curl,CURLOPT_FOLLOWLOCATION,true);curl_setopt($curl,CURLOPT_MAXREDIRS,10);curl_setopt($curl,CURLOPT_SSL_VERIFYPEER,false);$res=curl_exec($curl);curl_close($curl);return $res;}}
 require 'scraperwiki/simple_html_dom.php';
 
+if ($run_environment == 'dev') {
+    error_reporting(E_ALL);
+    ini_set('display_errors','On');   
+
+	new scraperwiki('');
+}
+
+
+
+// Set state of scraper as running in case we crash part way thru
+scraperwiki::save_var('scraper_state', 'running');
+scraperwiki::save_var('last_start', gmdate("Y-m-d\TH:i:s\Z"));
 
 $url = "http://www.floridaleagueofcities.com/directory.aspx";
 
@@ -34,6 +43,23 @@ foreach ($city_list as $link) {
     if ($run_environment == 'dev' && $count > $max_records) break;
 
 }
+
+// Set finish time
+scraperwiki::save_var('last_finish', gmdate("Y-m-d\TH:i:s\Z"));
+
+// Set total number of rows
+if ($result = scraperwiki::select('count(*) as count from jurisdictions')) {
+	if (!empty($result[0]['count'])) {
+		$count = $result[0]['count'];
+	} 
+}
+
+$count = empty($count) ? null : $count;
+scraperwiki::save_var('rows_scraped', $count);
+scraperwiki::save_var('scraper_state', 'ok');
+
+
+
 
 
 // if testing
@@ -102,45 +128,44 @@ function get_city_data($name, $url) {
     $content = $dom->find("div[id=ctl00_cphmain_pnlCityInfo]", 0)->find("table", 0);
 
     $jurisdiction = jurisdiction();
-
-
+	
     $jurisdiction['type']                   = 'government';
 
     $jurisdiction['level']                   = 'municipal';
 
     $jurisdiction['name']                   = $name;
     $jurisdiction['url']                   = ($content->find("tr", 7)->find("td", 1)->find("a", 0)) ? $content->find("tr", 7)->find("td", 1)->find("a", 0)->href : null;;
-
+    
     $jurisdiction['email']                   = ($content->find("tr", 8)->find("td", 1)->find("a", 0)) ? $content->find("tr", 8)->find("td", 1)->find("a", 0)->href : null;
     $jurisdiction['phone']                   = trim($content->find("tr", 4)->find("td", 1)->plaintext);                
 
-    $address                 = trim($content->find("tr", 1)->find("td", 1)->plaintext);    
-    $address_street         = substr($address, 0, strpos($address, $name));
-    $address_street         = trim($address_street);    
-    $address_postcode         =  substr($address, strpos($address, ', FL')+4);
-    $address_postcode         = trim($address_postcode);
-
-    // $jurisdiction['address_name']           = ;
-    $jurisdiction['address_1']               = $address_street;
-    // $jurisdiction['address_2']               = ;   
-    $jurisdiction['address_locality']     = $name;
-     $jurisdiction['address_region']         = 'FL';
-     $jurisdiction['address_postcode']     = $address_postcode;
-     $jurisdiction['address_country']     = 'USA';
-
-
-    $other = array();
-
-    $other['address_shipping']        = trim($content->find("tr", 2)->find("td", 1)->plaintext);                
-    $other['fax']                    = trim($content->find("tr", 5)->find("td", 1)->plaintext);                        
-    $other['year_incorporated']      = trim($content->find("tr", 10)->find("td", 1)->plaintext);                        
-    $other['population']             = trim($content->find("tr", 11)->find("td", 1)->plaintext);                        
-    $other['county']                 = trim($content->find("tr", 12)->find("td", 1)->plaintext);        
-    //$other['city_history']           = ($content->find("tr", 14)->find("td", 1)) ? trim($content->find("tr", 14)->find("td", 1)->plaintext) : null;            
-   
-    $jurisdiction['other_data']     = json_encode($other);
-    $jurisdiction['sources']                = json_encode(array(array('description' => null, 'url' => $url, "timestamp" => gmdate("Y-m-d\TH:i:s\Z"))));
-
+     $address                 = trim($content->find("tr", 1)->find("td", 1)->plaintext);    
+     $address_street         = substr($address, 0, strpos($address, $name));
+     $address_street         = trim($address_street);    
+     $address_postcode         =  substr($address, strpos($address, ', FL')+4);
+     $address_postcode         = trim($address_postcode);
+     
+     // $jurisdiction['address_name']           = ;
+     $jurisdiction['address_1']               = $address_street;
+     // $jurisdiction['address_2']               = ;   
+     $jurisdiction['address_locality']     = $name;
+      $jurisdiction['address_region']         = 'FL';
+      $jurisdiction['address_postcode']     = $address_postcode;
+      $jurisdiction['address_country']     = 'USA';
+     
+     
+     $other = array();
+     
+     $other['address_shipping']        = trim($content->find("tr", 2)->find("td", 1)->plaintext);                
+     $other['fax']                    = trim($content->find("tr", 5)->find("td", 1)->plaintext);                        
+     $other['year_incorporated']      = trim($content->find("tr", 10)->find("td", 1)->plaintext);                        
+     $other['population']             = trim($content->find("tr", 11)->find("td", 1)->plaintext);                        
+     $other['county']                 = trim($content->find("tr", 12)->find("td", 1)->plaintext);        
+     //$other['city_history']           = ($content->find("tr", 14)->find("td", 1)) ? trim($content->find("tr", 14)->find("td", 1)->plaintext) : null;            
+     
+     $jurisdiction['other_data']     	= json_encode($other);
+     $jurisdiction['sources']                = json_encode(array(array('description' => null, 'url' => $url, "timestamp" => gmdate("Y-m-d\TH:i:s\Z"))));
+     
 
 
     // Get reps
@@ -156,7 +181,7 @@ function get_city_data($name, $url) {
         return $jurisdiction;
     }
     else {
-        scraperwiki::save_sqlite(array('name'), $jurisdiction, 'jurisdictions');    
+        scraperwiki::save_sqlite(array('name'), $jurisdiction, $table_name = 'jurisdictions');    
         return true;
 
     }
@@ -184,6 +209,8 @@ function get_rep_details($dom, $source, $city) {
 
         $official['title']                    =    trim($row->find("td", 0)->plaintext);;
         $official['name_full']                =    trim($row->find("td", 1)->plaintext);;
+
+        $official['government_name']        =    $city;
 
         $official['government_level']        = 'municipal';
 
@@ -262,7 +289,6 @@ function jurisdiction() {
         'level'                   => NULL,          
         'level_name'             => NULL,                
         'name'                       => NULL,          
-        'id'                     => NULL,                
         'url'                       => NULL,          
         'url_contact'           => NULL,          
         'email'                   => NULL,          
@@ -350,3 +376,4 @@ function jurisdiction() {
 
 
 ?>
+
